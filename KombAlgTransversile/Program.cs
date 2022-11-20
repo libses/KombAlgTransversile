@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography.X509Certificates;
+﻿using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace KombAlgTransversile
 {
@@ -14,18 +15,18 @@ namespace KombAlgTransversile
         public Edge Parent;
         public List<Edge> Outgoing = new List<Edge>();
         public List<Edge> Ingoing = new List<Edge>();
-        public void AddNext(Node next, int flow)
+        public void AddNext(Node next, int capacity)
         {
-            var edge = new Edge(flow);
+            var edge = new Edge(capacity);
             edge.Start = this;
             edge.End = next;
             Outgoing.Add(edge);
             next.Ingoing.Add(edge);
         }
 
-        public void AddPrev(Node next, int flow)
+        public void AddPrev(Node next, int capacity)
         {
-            var edge = new Edge(flow);
+            var edge = new Edge(capacity);
             edge.End = this;
             edge.Start = next;
             Ingoing.Add(edge);
@@ -45,6 +46,7 @@ namespace KombAlgTransversile
         public Node Start;
         public Node End;
         public bool Deleted;
+        public bool Inverted;
         public Edge(int capacity)
         {
             Capacity = capacity;
@@ -184,41 +186,134 @@ namespace KombAlgTransversile
                 }
             }
         }
+
+        public static List<Edge> DepthSearchWithInversion(TransportNetwork transportNetwork)
+        {
+            var visited = new HashSet<Edge>();
+            var queue = new Queue<Node>();
+            queue.Enqueue(transportNetwork.Source);
+            bool notFind = true;
+
+            List<Edge> candidates = new List<Edge>();
+            while (notFind && queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var outg = current.Outgoing.Where(x => !x.Deleted && !visited.Contains(x));
+
+                foreach (var positive in outg)
+                {
+                    visited.Add(positive);
+                    positive.End.Parent = positive;
+                    queue.Enqueue(positive.End);
+                    if (positive.End == transportNetwork.Sink)
+                    {
+                        notFind = false;
+                    }
+                }
+            }
+
+            if (notFind)
+            {
+                return new List<Edge>();
+            }
+
+            var temp = transportNetwork.Sink;
+            while (true)
+            {
+                if (temp.Parent == null)
+                {
+                    return ((IEnumerable<Edge>)candidates).Reverse().ToList();
+                }
+
+                if (temp.Parent.Start == transportNetwork.Source)
+                {
+                    temp.Parent.Deleted = true;
+                }
+                else if (temp.Parent.End == transportNetwork.Sink)
+                {
+                    temp.Parent.Deleted = true;
+                }
+                else
+                {
+                    var toInvert = temp.Parent;
+
+                    temp.Parent.End.AddNext(temp.Parent.Start, 1);
+                    temp.Parent.Deleted = true;
+                }
+
+                candidates.Add(temp.Parent);
+                var prev = temp;
+                temp = temp.Parent.Start;
+                prev.Parent = null;
+            }
+        }
     }
 
     internal class Program
     {
         static void Main(string[] args)
         {
-            var tn = new TransportNetwork();
-            var a = new Node();
-            a.Name = "a";
-            var b = new Node();
-            b.Name = "b";
-            var c = new Node();
-            c.Name = "c";
-            var d = new Node();
-            d.Name = "d";
-            var e = new Node();
-            e.Name = "e";
-            var f = new Node();
-            f.Name = "f";
-            var g = new Node();
-            g.Name = "g";
-            a.AddNext(d, 3);
-            a.AddNext(b, 3);
-            a.AddPrev(c, 3);
-            b.AddPrev(e, 1);
-            b.AddNext(c, 4);
-            c.AddNext(d, 1);
-            c.AddNext(e, 2);
-            d.AddNext(f, 6);
-            d.AddNext(e, 2);
-            e.AddNext(g, 1);
-            f.AddNext(g, 9);
-            tn.Source = a;
-            tn.Sink = g;
-            Algorithm.EdmondsCarp(tn);
+            var n = int.Parse(Console.ReadLine());
+            var source = new Node();
+            var sink = new Node();
+            var sets = new HashSet<int>[n];
+            var visited = new HashSet<int>();
+            var intToNode = new Dictionary<int, Node>();
+            var nodeToInt = new Dictionary<Node, int>();
+            var tn = new TransportNetwork()
+            {
+                Sink = sink,
+                Source = source
+            };
+
+            for (int i = 0; i < n; i++)
+            {
+                var set = Console.ReadLine().Split().Select(int.Parse).Where(x => x != 0).ToHashSet();
+                sets[i] = set;
+                var node = new Node();
+                node.Name = $"Set {i}";
+                source.AddNext(node, 1);
+                foreach (var integer in set)
+                {
+                    if (!intToNode.ContainsKey(integer))
+                    {
+                        var iN = new Node();
+                        iN.Name = integer.ToString();
+                        intToNode.Add(integer, iN);
+                        nodeToInt.Add(iN, integer);
+
+                    }
+
+                    node.AddNext(intToNode[integer], 1);
+                }
+            }
+
+            foreach (var node in intToNode.Values)
+            {
+                node.AddNext(sink, 1);
+            }
+
+            var answers = new List<int>();
+            while (true)
+            {
+                var way = Algorithm.DepthSearchWithInversion(tn);
+                if (way.Count == 0)
+                {
+                    break;
+                }
+
+                answers.Add(nodeToInt[way[way.Count - 1].Start]);
+            }
+
+            if (answers.Count == sets.Length)
+            {
+                Console.WriteLine("Y");
+                Console.WriteLine(string.Join(" ", answers));
+            }
+            else
+            {
+                Console.WriteLine("N");
+            }
         }
     }
 }
