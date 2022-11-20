@@ -13,15 +13,15 @@ namespace KombAlgTransversile
     {
         public string Name;
         public Edge Parent;
-        public List<Edge> Outgoing = new List<Edge>();
-        public List<Edge> Ingoing = new List<Edge>();
+        public Dictionary<Node, Edge> Outgoing = new Dictionary<Node, Edge>();
+        public Dictionary<Node, Edge> Ingoing = new Dictionary<Node, Edge>();
         public void AddNext(Node next, int capacity)
         {
             var edge = new Edge(capacity);
             edge.Start = this;
             edge.End = next;
-            Outgoing.Add(edge);
-            next.Ingoing.Add(edge);
+            Outgoing.Add(next, edge);
+            next.Ingoing.Add(this, edge);
         }
 
         public void AddPrev(Node next, int capacity)
@@ -29,8 +29,8 @@ namespace KombAlgTransversile
             var edge = new Edge(capacity);
             edge.End = this;
             edge.Start = next;
-            Ingoing.Add(edge);
-            next.Outgoing.Add(edge);
+            Ingoing.Add(next, edge);
+            next.Outgoing.Add(this, edge);
         }
 
         public override string ToString()
@@ -45,8 +45,6 @@ namespace KombAlgTransversile
         public int Flow;
         public Node Start;
         public Node End;
-        public bool Deleted;
-        public bool Inverted;
         public Edge(int capacity)
         {
             Capacity = capacity;
@@ -60,133 +58,6 @@ namespace KombAlgTransversile
 
     public static class Algorithm
     {
-        public static void EdmondsCarp(TransportNetwork transportNetwork)
-        {
-            var remaining = transportNetwork;
-            while (true)
-            {
-                var way = DepthSearch(remaining);
-                if (way.Count == 0)
-                {
-                    break;
-                }
-
-                var min = int.MaxValue;
-                var start = transportNetwork.Source;
-                for (int i = 0; i < way.Count; i++)
-                {
-                    var currentEdge = way[i];
-                    if (currentEdge.Start == start)
-                    {
-                        if ((currentEdge.Capacity - currentEdge.Flow) < min)
-                        {
-                            min = (currentEdge.Capacity - currentEdge.Flow);
-                        }
-
-                        start = currentEdge.End;
-                    }
-                    else
-                    {
-                        if ((currentEdge.Flow < min))
-                        {
-                            min = currentEdge.Flow;
-                        }
-
-                        start = currentEdge.End;
-                    }
-
-                }
-
-                var end = transportNetwork.Sink;
-                for (int i = (way.Count - 1); i >= 0; i--)
-                {
-                    var currentEdge = way[i];
-                    if (currentEdge.End == end)
-                    {
-                        currentEdge.Flow += min;
-                        end = currentEdge.Start;
-                        if ((currentEdge.Capacity - currentEdge.Flow) == 0)
-                        {
-                            currentEdge.Deleted = true;
-                        }
-                    }
-                    else
-                    {
-                        currentEdge.Flow -= min;
-                        end = currentEdge.End;
-                        if (currentEdge.Flow == 0)
-                        {
-                            currentEdge.Deleted = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        public static List<Edge> DepthSearch(TransportNetwork transportNetwork)
-        {
-            var visited = new HashSet<Edge>();
-            var start = transportNetwork.Source;
-            var end = transportNetwork.Sink;
-            var queue = new Queue<Node>();
-            queue.Enqueue(start);
-            bool notFind = true;
-
-            List<Edge> candidates = new List<Edge>();
-            while (notFind && queue.Count > 0)
-            {
-                var current = queue.Dequeue();
-                var outg = current.Outgoing.Where(x => !x.Deleted && !visited.Contains(x));
-                var ing = current.Ingoing.Where(x => !x.Deleted && !visited.Contains(x));
-
-                foreach (var positive in outg)
-                {
-                    visited.Add(positive);
-                    positive.End.Parent = positive;
-                    queue.Enqueue(positive.End);
-                    if (positive.End == end)
-                    {
-                        notFind = false;
-                    }
-                }
-
-                foreach (var negative in ing)
-                {
-                    visited.Add(negative);
-                    negative.Start.Parent = negative;
-                    queue.Enqueue(negative.Start);
-                    if (negative.Start == end)
-                    {
-                        notFind = false;
-                    }
-                }
-            }
-
-            if (notFind)
-            {
-                return new List<Edge>();
-            }
-
-            var temp = end;
-            while (true)
-            {
-                if (temp.Parent == null)
-                {
-                    return ((IEnumerable<Edge>)candidates).Reverse().ToList();
-                }
-
-                candidates.Add(temp.Parent);
-                if (temp.Parent.Start == temp)
-                {
-                    temp = temp.Parent.End;
-                }
-                else
-                {
-                    temp = temp.Parent.Start;
-                }
-            }
-        }
-
         public static List<Edge> DepthSearchWithInversion(TransportNetwork transportNetwork)
         {
             var visited = new HashSet<Edge>();
@@ -198,14 +69,14 @@ namespace KombAlgTransversile
             while (notFind && queue.Count > 0)
             {
                 var current = queue.Dequeue();
-                var outg = current.Outgoing.Where(x => !x.Deleted && !visited.Contains(x));
+                var outg = current.Outgoing.Where(x => !visited.Contains(x.Value));
 
                 foreach (var positive in outg)
                 {
-                    visited.Add(positive);
-                    positive.End.Parent = positive;
-                    queue.Enqueue(positive.End);
-                    if (positive.End == transportNetwork.Sink)
+                    visited.Add(positive.Value);
+                    positive.Value.End.Parent = positive.Value;
+                    queue.Enqueue(positive.Value.End);
+                    if (positive.Value.End == transportNetwork.Sink)
                     {
                         notFind = false;
                     }
@@ -218,27 +89,25 @@ namespace KombAlgTransversile
             }
 
             var temp = transportNetwork.Sink;
-            while (true)
+            while (temp.Parent != null)
             {
-                if (temp.Parent == null)
-                {
-                    return ((IEnumerable<Edge>)candidates).Reverse().ToList();
-                }
-
                 if (temp.Parent.Start == transportNetwork.Source)
                 {
-                    temp.Parent.Deleted = true;
+                    temp.Ingoing.Remove(transportNetwork.Source);
+                    transportNetwork.Source.Outgoing.Remove(temp);
                 }
-                else if (temp.Parent.End == transportNetwork.Sink)
+                else if (temp == transportNetwork.Sink)
                 {
-                    temp.Parent.Deleted = true;
+                    temp.Ingoing.Remove(temp.Parent.Start);
+                    temp.Parent.Start.Outgoing.Remove(temp);
                 }
                 else
                 {
                     var toInvert = temp.Parent;
 
-                    temp.Parent.End.AddNext(temp.Parent.Start, 1);
-                    temp.Parent.Deleted = true;
+                    temp.Parent.Start.Outgoing.Remove(temp);
+                    temp.Ingoing.Remove(temp.Parent.Start);
+                    temp.Parent.Start.AddNext(temp.Parent.Start, 1);
                 }
 
                 candidates.Add(temp.Parent);
@@ -246,6 +115,8 @@ namespace KombAlgTransversile
                 temp = temp.Parent.Start;
                 prev.Parent = null;
             }
+
+            return ((IEnumerable<Edge>)candidates).Reverse().ToList();
         }
     }
 
